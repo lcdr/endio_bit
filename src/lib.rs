@@ -22,13 +22,13 @@
 
 	Bit-level I/O is a common problem, and there are numerous crates on crates.io attempting to provide solutions. However, I haven't been able to find one that is completely satisfactory. Here's a list of related crates and how they differ from this one:
 
-	- `av-bitstream` - Includes (de-)serialization and endianness. The entire crate is undocumented.
+	- `av-bitstream` - Includes (de-)serialization and endianness instead of being a low-level abstraction. The entire crate is undocumented.
 
 	- `bit-io` - Does not implement `std::io::{Read, Write}` on its abstractions, thus not being suitable for code requiring these traits.
 
 	- `bitio` - Only has support for reading.
 
-	- `bitstream`, `bitstream_reader`, `bitter` - Only have support for reading. Include deserialization and endianness instead of being a low-level abstraction.
+	- `bitstream`, `bitstream_reader`, `bitter` - Only have support for reading. Include deserialization and endianness.
 
 	- `bitstream-io` - Includes (de-)serialization and endianness. Includes Huffman trees for some reason. Does not implement `std::io::{Read, Write}` on its abstractions.
 
