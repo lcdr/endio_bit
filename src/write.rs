@@ -1,7 +1,15 @@
 use std::io::Result as Res;
 use std::io::Write;
 
-/// Clone of `std::io::IntoInnerError`. See `std::io::IntoInnerError` for documentation.
+/**
+	An error returned by `BitWriter::into_inner`.
+
+	This is a clone of [`std::io::IntoInnerError`]. The semantics and API are the exact same. Ideally I'd use `std::io::IntoInnerError` directly, but its constructor is not public.
+
+	See [`std::io::IntoInnerError`] for documentation.
+
+	[`std::io::IntoInnerError`]: https://doc.rust-lang.org/std/io/struct.IntoInnerError.html
+**/
 #[derive(Debug)]
 pub struct IntoInnerError<W>(W, std::io::Error);
 
