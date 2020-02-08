@@ -68,7 +68,18 @@ impl<E: BitEndianness, R: Read> BitReader<E, R> {
 		self.bit_buffer = 0;
 	}
 
-	/// Gets a reference to the underlying reader.
+	/**
+		Gets a reference to the underlying reader.
+
+		```compile_fail
+		# use endio_bit::BEBitReader;
+		# use std::io::Read;
+		# let mut reader = BEBitReader::new(&b"\x00"[..]);
+		# let inner = reader.get_ref();
+		# let mut buf = [0; 1];
+		# inner.read(&mut buf).unwrap();
+		```
+	**/
 	pub fn get_ref(&self) -> &R {
 		&self.inner
 	}
@@ -286,151 +297,24 @@ impl<R: Read> Read for BitReader<LE, R> {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_common {
+	use std::io::Read;
 	use crate::BEBitReader;
 
 	#[test]
-	fn read_shifted() {
-		use std::io::Read;
-		let data = &b"\xaa\x8c\xaen\x80"[..];
-		let mut reader = BEBitReader::new(data);
-		let mut val: bool;
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, false);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		let mut buf = [0; 4];
-		assert_eq!(reader.read(&mut buf).unwrap(), 4);
-		assert_eq!(&buf, b"Test");
+	fn get_ref() {
+		let reader = BEBitReader::new(&b"\xf8"[..]);
+		let inner = reader.get_ref();
+		assert_eq!(inner[0], 0xf8);
 	}
 
 	#[test]
-	fn read_shifted_0() {
-		use std::io::Read;
-		let data = &b"\xaa\x8c\xaen\x80"[..];
-		let mut reader = BEBitReader::new(data);
-		let mut val: bool;
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, false);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		let mut buf = [0; 0];
-		assert_eq!(reader.read(&mut buf).unwrap(), 0);
-		assert_eq!(&buf, b"");
-		let mut buf = [0; 4];
-		assert_eq!(reader.read(&mut buf).unwrap(), 4);
-		assert_eq!(&buf, b"Test");
-	}
-
-	#[test]
-	fn read_shifted_1() {
-		use std::io::Read;
-		let data = &b"\xaa\x8c\xaen\x80"[..];
-		let mut reader = BEBitReader::new(data);
-		let mut val: bool;
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, false);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
+	fn get_mut_aligned() {
+		let mut reader = BEBitReader::new(&b"\xf8"[..]);
+		let inner = reader.get_mut();
 		let mut buf = [0; 1];
-		assert_eq!(reader.read(&mut buf).unwrap(), 1);
-		assert_eq!(&buf, b"T");
-		let mut buf = [0; 3];
-		assert_eq!(reader.read(&mut buf).unwrap(), 3);
-		assert_eq!(&buf, b"est");
-	}
-
-
-	#[test]
-	fn read_shifted_eol() {
-		use std::io::Read;
-		let data = &b"\xaa\x8c\xaen\x80"[..];
-		let mut reader = BEBitReader::new(data);
-		let mut val: bool;
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, false);
-		val = reader.read_bit().unwrap();
-		assert_eq!(val, true);
-		let mut buf = [0; 8];
-		assert_eq!(reader.read(&mut buf).unwrap(), 4);
-		assert_eq!(&buf, b"Test\0\0\0\0");
-	}
-
-	#[test]
-	fn read_bit() {
-		let b = &b"\x80"[..];
-		let mut reader = BEBitReader::new(b);
-		let bit: bool = reader.read_bit().unwrap();
-		assert_eq!(bit, true);
-	}
-
-	#[test]
-	fn read_bit_multiple() {
-		let b = &b"\x2a"[..];
-		let mut reader = BEBitReader::new(b);
-		let mut bit: bool;
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, false);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, false);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, true);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, false);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, true);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, false);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, true);
-		bit = reader.read_bit().unwrap();
-		assert_eq!(bit, false);
-	}
-
-	#[test]
-	fn read_bits() {
-		let data = &b"\xa5"[..];
-		let mut reader = BEBitReader::new(data);
-		let bits_1 = reader.read_bits(4).unwrap();
-		let bits_2 = reader.read_bits(4).unwrap();
-		assert_eq!(bits_1, 0x0a);
-		assert_eq!(bits_2, 0x05);
-	}
-
-	#[test]
-	fn read_max_bits() {
-		let data = &b"\xff\xa5"[..];
-		let mut reader = BEBitReader::new(data);
-		let bits = reader.read_bits(8).unwrap();
-		assert_eq!(bits, 0xff);
-	}
-	#[test]
-	#[should_panic]
-	fn read_too_many_bits() {
-		let data = &b"\x2a\xa5"[..];
-		let mut reader = BEBitReader::new(data);
-		reader.read_bits(9).unwrap();
-	}
-
-	#[test]
-	fn align() {
-		let data = &b"\xf8\x80"[..];
-		let mut reader = BEBitReader::new(data);
-		let bits = reader.read_bits(5).unwrap();
-		assert_eq!(reader.is_aligned(), false);
-		reader.align();
-		assert_eq!(reader.is_aligned(), true);
-		let bit: bool = reader.read_bit().unwrap();
-		assert_eq!(bits, 31);
-		assert_eq!(bit, true);
+		inner.read(&mut buf).unwrap();
+		assert_eq!(buf[0], 0xf8);
 	}
 
 	#[test]
@@ -440,5 +324,150 @@ mod tests {
 		let mut reader = BEBitReader::new(data);
 		reader.read_bits(4).unwrap();
 		reader.get_mut();
+	}
+
+	#[test]
+	fn get_mut_unchecked() {
+		let mut reader = BEBitReader::new(&b"\x00\xff"[..]);
+		reader.read_bits(4).unwrap();
+		let inner = unsafe { reader.get_mut_unchecked() };
+		let mut buf = [0; 1];
+		inner.read(&mut buf).unwrap();
+		assert_eq!(buf[0], 0xff);
+	}
+
+	#[test]
+	fn into_inner() {
+		let reader = BEBitReader::new(std::io::empty());
+		let inner = reader.into_inner();
+		inner.bytes();
+	}
+
+	#[test]
+	fn align() {
+		let mut reader = BEBitReader::new(&b"\xf8\x80"[..]);
+		let bits = reader.read_bits(5).unwrap();
+		assert_eq!(reader.is_aligned(), false);
+		reader.align();
+		assert_eq!(reader.is_aligned(), true);
+		let bit = reader.read_bit().unwrap();
+		assert_eq!(bits, 31);
+		assert_eq!(bit, true);
+	}
+}
+
+#[cfg(test)]
+mod tests_be {
+	use std::io::Read;
+	use crate::BEBitReader;
+
+	#[test]
+	fn read_aligned() {
+		let mut reader = BEBitReader::new(&b"Test"[..]);
+		let mut buf = [0; 4];
+		assert_eq!(reader.read(&mut buf).unwrap(), 4);
+		assert_eq!(&buf, b"Test");
+	}
+
+	#[test]
+	fn read_shifted() {
+		let mut reader = BEBitReader::new(&b"\xaa\x8c\xae\x6e\x80"[..]);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		let mut buf = [0; 0];
+		assert_eq!(reader.read(&mut buf).unwrap(), 0);
+		assert_eq!(&buf, b"");
+		let mut buf = [0; 1];
+		assert_eq!(reader.read(&mut buf).unwrap(), 1);
+		assert_eq!(&buf, b"T");
+		let mut buf = [0; 7];
+		assert_eq!(reader.read(&mut buf).unwrap(), 3);
+		assert_eq!(&buf, b"est\0\0\0\0");
+	}
+
+	#[test]
+	fn read_bit() {
+		let mut reader = BEBitReader::new(&b"\x2a"[..]);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+	}
+
+	#[test]
+	fn read_bits() {
+		let mut reader = BEBitReader::new(&b"\xab\xcd"[..]);
+		assert_eq!(reader.read_bits(4).unwrap(), 0x0a);
+		assert_eq!(reader.read_bits(8).unwrap(), 0xbc);
+	}
+
+	#[test]
+	#[should_panic]
+	fn read_too_many_bits() {
+		let mut reader = BEBitReader::new(&b""[..]);
+		let _ = reader.read_bits(9);
+	}
+}
+
+#[cfg(test)]
+mod tests_le {
+	use std::io::Read;
+	use crate::LEBitReader;
+
+	#[test]
+	fn read_aligned() {
+		let mut reader = LEBitReader::new(&b"Test"[..]);
+		let mut buf = [0; 4];
+		assert_eq!(reader.read(&mut buf).unwrap(), 4);
+		assert_eq!(&buf, b"Test");
+	}
+
+	#[test]
+	fn read_shifted() {
+		let mut reader = LEBitReader::new(&b"\xa5\x2a\x9b\xa3\x03"[..]);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		let mut buf = [0; 0];
+		assert_eq!(reader.read(&mut buf).unwrap(), 0);
+		assert_eq!(&buf, b"");
+		let mut buf = [0; 1];
+		assert_eq!(reader.read(&mut buf).unwrap(), 1);
+		assert_eq!(&buf, b"T");
+		let mut buf = [0; 7];
+		assert_eq!(reader.read(&mut buf).unwrap(), 3);
+		assert_eq!(&buf, b"est\0\0\0\0");
+	}
+
+	#[test]
+	fn read_bit() {
+		let mut reader = LEBitReader::new(&b"\x2a"[..]);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
+		assert_eq!(reader.read_bit().unwrap(), false);
+	}
+
+		#[test]
+	fn read_bits() {
+		let mut reader = LEBitReader::new(&b"\xab\xcd"[..]);
+		assert_eq!(reader.read_bits(4).unwrap(), 0x0b);
+		assert_eq!(reader.read_bits(8).unwrap(), 0xda);
+	}
+
+	#[test]
+	#[should_panic]
+	fn read_too_many_bits() {
+		let mut reader = LEBitReader::new(&b""[..]);
+		let _ = reader.read_bits(9);
 	}
 }
