@@ -5,7 +5,9 @@
 */
 pub trait BitEndianness: private::Sealed {}
 
+#[derive(Debug)]
 pub struct BigEndian;
+#[derive(Debug)]
 pub struct LittleEndian;
 
 impl BitEndianness for BigEndian {}

@@ -232,7 +232,7 @@ impl<R: Read> BitReader<LE, R> {
 			self.fill_buffer()?;
 		}
 		let mut res;
-		let needed_extra_bits = (count + self.bit_offset) as i8 - 8;
+		let needed_extra_bits = (self.bit_offset + count) as i8 - 8;
 		if needed_extra_bits <= 0 {
 			res = self.bit_buffer << -needed_extra_bits;
 		} else {
@@ -429,19 +429,19 @@ mod tests_le {
 
 	#[test]
 	fn read_shifted() {
-		let mut reader = LEBitReader::new(&b"\xa5\x2a\x9b\xa3\x03"[..]);
-		assert_eq!(reader.read_bit().unwrap(), true);
+		let mut reader = LEBitReader::new(&b"\xaa\x8c\xae\x6e\x80"[..]);
 		assert_eq!(reader.read_bit().unwrap(), false);
 		assert_eq!(reader.read_bit().unwrap(), true);
+		assert_eq!(reader.read_bit().unwrap(), false);
 		let mut buf = [0; 0];
 		assert_eq!(reader.read(&mut buf).unwrap(), 0);
 		assert_eq!(&buf, b"");
 		let mut buf = [0; 1];
 		assert_eq!(reader.read(&mut buf).unwrap(), 1);
-		assert_eq!(&buf, b"T");
+		assert_eq!(&buf, b"\x95");
 		let mut buf = [0; 7];
 		assert_eq!(reader.read(&mut buf).unwrap(), 3);
-		assert_eq!(&buf, b"est\0\0\0\0");
+		assert_eq!(&buf, b"\xd1\xd5\x0d\x10\0\0\0");
 	}
 
 	#[test]
