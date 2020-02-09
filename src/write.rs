@@ -82,7 +82,16 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 		Ok(())
 	}
 
-	/// Gets a reference to the underlying writer.
+	/**
+		Gets a reference to the underlying writer.
+
+		```compile_fail
+		# use endio_bit::BEBitWriter;
+		# let mut writer = BEBitWriter::new(vec![]);
+		# let inner = writer.get_ref();
+		# inner.clear();
+		```
+	**/
 	pub fn get_ref(&self) -> &W {
 		self.inner.as_ref().unwrap()
 	}
@@ -304,6 +313,35 @@ mod tests_common {
 	use crate::BEBitWriter;
 
 	#[test]
+	fn get_ref() {
+		let writer = BEBitWriter::new(vec![]);
+		let inner = writer.get_ref();
+		assert_eq!(inner.len(), 0);
+	}
+
+	#[test]
+	fn get_mut() {
+		let mut writer = BEBitWriter::new(vec![]);
+		let inner = writer.get_mut();
+		inner.clear();
+	}
+
+	#[test]
+	#[should_panic]
+	fn get_mut_unaligned() {
+		let mut writer = BEBitWriter::new(vec![]);
+		writer.write_bits(0x0a, 4).unwrap();
+		writer.get_mut();
+	}
+
+	#[test]
+	fn into_inner() {
+		let writer = BEBitWriter::new(vec![]);
+		let inner = writer.into_inner().unwrap();
+		inner.into_boxed_slice();
+	}
+
+	#[test]
 	fn align() {
 		let mut vec = vec![];{
 		let mut writer = BEBitWriter::new(&mut vec);
@@ -314,23 +352,23 @@ mod tests_common {
 		writer.write_bit(true).unwrap();}
 		assert_eq!(vec, b"\xf8\x80");
 	}
-
-	#[test]
-	#[should_panic]
-	fn get_mut_unaligned() {
-		let mut writer = BEBitWriter::new(vec![]);
-		writer.write_bits(0x0a, 4).unwrap();
-		writer.get_mut();
-	}
 }
 
 #[cfg(test)]
 mod tests_be {
+	use std::io::Write;
 	use crate::BEBitWriter;
 
 	#[test]
+	fn write_aligned() {
+		let mut vec = vec![];{
+		let mut writer = BEBitWriter::new(&mut vec);
+		assert_eq!(writer.write(b"Test").unwrap(), 4);}
+		assert_eq!(vec, b"Test");
+	}
+
+	#[test]
 	fn write_shifted() {
-		use std::io::Write;
 		let mut vec = vec![];{
 		let mut writer = BEBitWriter::new(&mut vec);
 		writer.write_bit(true).unwrap();
@@ -338,6 +376,15 @@ mod tests_be {
 		writer.write_bit(true).unwrap();
 		assert_eq!(writer.write(b"Test").unwrap(), 4);}
 		assert_eq!(vec, b"\xaa\x8c\xae\x6e\x80");
+	}
+
+	#[test]
+	fn flush() {
+		let mut writer = BEBitWriter::new(vec![]);
+		writer.write_bit(true).unwrap();
+		assert_eq!(writer.get_ref(), b"");
+		writer.flush().unwrap();
+		assert_eq!(writer.get_ref(), b"\x80");
 	}
 
 	#[test]
@@ -375,11 +422,19 @@ mod tests_be {
 
 #[cfg(test)]
 mod tests_le {
+	use std::io::Write;
 	use crate::LEBitWriter;
 
 	#[test]
+	fn write_aligned() {
+		let mut vec = vec![];{
+		let mut writer = LEBitWriter::new(&mut vec);
+		assert_eq!(writer.write(b"Test").unwrap(), 4);}
+		assert_eq!(vec, b"Test");
+	}
+
+	#[test]
 	fn write_shifted() {
-		use std::io::Write;
 		let mut vec = vec![];{
 		let mut writer = LEBitWriter::new(&mut vec);
 		writer.write_bit(true).unwrap();
@@ -387,6 +442,15 @@ mod tests_le {
 		writer.write_bit(true).unwrap();
 		assert_eq!(writer.write(b"Test").unwrap(), 4);}
 		assert_eq!(vec, b"\xa5\x2a\x9b\xa3\x03");
+	}
+
+	#[test]
+	fn flush() {
+		let mut writer = LEBitWriter::new(vec![]);
+		writer.write_bit(true).unwrap();
+		assert_eq!(writer.get_ref(), b"");
+		writer.flush().unwrap();
+		assert_eq!(writer.get_ref(), b"\x01");
 	}
 
 	#[test]
