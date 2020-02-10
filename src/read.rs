@@ -122,10 +122,7 @@ impl<E: BitEndianness, R: Read> BitReader<E, R> {
 		self.bit_buffer = temp[0];
 		Ok(())
 	}
-}
 
-/// These methods read starting from the most significant bit.
-impl<R: Read> BitReader<BE, R> {
 	/**
 		Reads a single bit, returning true for 1, false for 0.
 
@@ -137,13 +134,20 @@ impl<R: Read> BitReader<BE, R> {
 		let value = reader.read_bit().unwrap();
 		assert_eq!(value, true);
 		```
+
+		```
+		# use endio_bit::LEBitReader;
+		let mut reader = LEBitReader::new(&b"\x01"[..]);
+		let value = reader.read_bit().unwrap();
+		assert_eq!(value, true);
+		```
 	**/
 	pub fn read_bit(&mut self) -> Res<bool> {
 		if self.is_aligned() {
 			self.fill_buffer()?;
 		}
-		let val = self.bit_buffer & (0x80 >> self.bit_offset) != 0;
-		self.bit_offset = if self.bit_offset == 7 { 0 } else { self.bit_offset + 1 };
+		let val = self.bit_buffer & (E::shift_lsb(E::shift_msb(0xff, 7), self.bit_offset)) != 0;
+		self.bit_offset = (self.bit_offset + 1) % 8;
 		Ok(val)
 	}
 
@@ -166,58 +170,6 @@ impl<R: Read> BitReader<BE, R> {
 		let value = reader.read_bits(5).unwrap();
 		assert_eq!(value, 31);
 		```
-	*/
-	pub fn read_bits(&mut self, count: u8) -> Res<u8> {
-		assert!(count <= 8);
-		if self.is_aligned() {
-			self.fill_buffer()?;
-		}
-		let mut res = self.bit_buffer << self.bit_offset;
-		if count > 8 - self.bit_offset {
-			self.fill_buffer()?;
-			res |= self.bit_buffer >> (8 - self.bit_offset);
-		}
-		res >>= 8 - count;
-		self.bit_offset = (self.bit_offset + count) % 8;
-		Ok(res)
-	}
-}
-
-/// These methods read starting from the least significant bit.
-impl<R: Read> BitReader<LE, R> {
-	/**
-		Reads a single bit, returning true for 1, false for 0.
-
-		# Examples
-
-		```
-		# use endio_bit::LEBitReader;
-		let mut reader = LEBitReader::new(&b"\x01"[..]);
-		let value = reader.read_bit().unwrap();
-		assert_eq!(value, true);
-		```
-	**/
-	pub fn read_bit(&mut self) -> Res<bool> {
-		if self.is_aligned() {
-			self.fill_buffer()?;
-		}
-		let val = self.bit_buffer & (0x01 << self.bit_offset) != 0;
-		self.bit_offset = if self.bit_offset == 7 { 0 } else { self.bit_offset + 1 };
-		Ok(val)
-	}
-
-	/**
-		Reads 8 bits or less.
-
-		The lowest `count` bits will be filled by this, the others will be zero.
-
-		Reading more than 8 bits is intentionally not supported to keep the interface simple. Reading more can be accomplished by reading bytes and then reading any leftover bits.
-
-		# Panics
-
-		Panics if `count` > 8.
-
-		# Examples
 
 		```
 		# use endio_bit::LEBitReader;
@@ -231,17 +183,16 @@ impl<R: Read> BitReader<LE, R> {
 		if self.is_aligned() {
 			self.fill_buffer()?;
 		}
-		let mut res;
-		let needed_extra_bits = (self.bit_offset + count) as i8 - 8;
-		if needed_extra_bits <= 0 {
-			res = self.bit_buffer << -needed_extra_bits;
-		} else {
-			res = self.bit_buffer >> needed_extra_bits;
+		let start = self.bit_offset;
+		let end = start + count;
+		let mut res = E::shift_msb(self.bit_buffer, start);
+		if end > 8 {
 			self.fill_buffer()?;
-			res |= self.bit_buffer << (8 - needed_extra_bits);
+			res |= E::shift_lsb(self.bit_buffer, 8 - start);
 		}
-		res >>= 8 - count;
-		self.bit_offset = (self.bit_offset + count) % 8;
+		res = E::shift_lsb(res, 8 - count);
+		res = E::align_right(res, count);
+		self.bit_offset = end % 8;
 		Ok(res)
 	}
 }
@@ -253,45 +204,19 @@ impl<R: Read> BitReader<LE, R> {
 
 	[`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 */
-impl<R: Read> Read for BitReader<BE, R> {
+impl<E: BitEndianness, R: Read> Read for BitReader<E, R> {
 	fn read(&mut self, buf: &mut [u8]) -> Res<usize> {
 		let count_read = self.inner.read(buf)?;
 		if self.is_aligned() {
 			return Ok(count_read);
 		}
 		let mut last_byte = self.bit_buffer;
-		let mut current_byte = self.bit_buffer;
 		for b in buf.iter_mut() {
-			current_byte = *b;
-			*b = last_byte << self.bit_offset | current_byte >> (8 - self.bit_offset);
+			let current_byte = *b;
+			*b = E::shift_msb(last_byte, self.bit_offset) | E::shift_lsb(current_byte, 8 - self.bit_offset);
 			last_byte = current_byte;
 		}
-		self.bit_buffer = current_byte;
-		Ok(count_read)
-	}
-}
-
-/**
-	Read bytes from a `BitReader` just like from [`Read`], but with bit shifting support for unaligned reads.
-
-	Directly maps to [`Read`] for aligned reads.
-
-	[`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
-*/
-impl<R: Read> Read for BitReader<LE, R> {
-	fn read(&mut self, buf: &mut [u8]) -> Res<usize> {
-		let count_read = self.inner.read(buf)?;
-		if self.is_aligned() {
-			return Ok(count_read);
-		}
-		let mut last_byte = self.bit_buffer;
-		let mut current_byte = self.bit_buffer;
-		for b in buf.iter_mut() {
-			current_byte = *b;
-			*b = last_byte >> self.bit_offset | current_byte << (8 - self.bit_offset);
-			last_byte = current_byte;
-		}
-		self.bit_buffer = current_byte;
+		self.bit_buffer = last_byte;
 		Ok(count_read)
 	}
 }

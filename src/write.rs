@@ -32,6 +32,10 @@ impl<W> IntoInnerError<W> {
 
 	When the `BitWriter` is dropped, the partially written byte will be written out. However, any errors that happen in the process of flushing the buffer when the writer is dropped will be ignored. Code that wishes to handle such errors must manually call `flush` before the writer is dropped.
 
+	To use this writer, you'll have to choose a bit endianness to write in. The bit endianness determines the direction in which bits in a byte will be written. Note that this is distinct from byte endianness, and e.g. a format which is little endian at the byte level is not necessarily little endian at the bit level.
+
+	If you don't already know which bit endianness you need, chances are you need big endian bit numbering. In that case, just use `endio_bit::BEBitWriter`. Otherwise use `endio_bit::LEBitWriter`.
+
 	[`std::io::Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 	[`std::io::BufWriter`]: https://doc.rust-lang.org/std/io/struct.BufWriter.html
 */
@@ -143,10 +147,7 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 		self.bit_buffer = 0;
 		Ok(())
 	}
-}
 
-/// These methods write starting from the most significant bit.
-impl<W: Write> BitWriter<BE, W> {
 	/**
 		Writes a single bit, writing 1 for true, 0 for false.
 
@@ -154,82 +155,23 @@ impl<W: Write> BitWriter<BE, W> {
 
 		```
 		# use endio_bit::BEBitWriter;
-		let mut vec = vec![];
-		{
-			let mut writer = BEBitWriter::new(&mut vec);
-			writer.write_bit(true).unwrap();
-		}
+		let mut writer = BEBitWriter::new(vec![]);
+		writer.write_bit(true).unwrap();
+		let vec = writer.into_inner().unwrap();
 		assert_eq!(vec[0], 0x80);
 		```
-	**/
-	pub fn write_bit(&mut self, bit: bool) -> Res<()> {
-		if bit {
-			self.bit_buffer |= 0x80 >> self.bit_offset;
-		}
-		self.bit_offset = (self.bit_offset + 1) % 8;
-		if self.is_aligned() {
-			self.flush_buffer()?;
-		}
-		Ok(())
-	}
-
-	/**
-		Writes 8 bits or less.
-
-		The lowest `count` bits will be used, others will be ignored.
-
-		Writing more than 8 bits is intentionally not supported to keep the interface simple. Writing more can be accomplished by writing bytes and then writing any leftover bits.
-
-		# Panics
-
-		Panics if `count` > 8.
-
-		# Examples
-
-		```
-		# use endio_bit::BEBitWriter;
-		let mut vec = vec![];
-		let mut writer = BEBitWriter::new(vec);
-		writer.write_bits(31, 5);
-		let vec = writer.into_inner().unwrap();
-		assert_eq!(vec[0], 0xf8);
-		```
-	*/
-	pub fn write_bits(&mut self, bits: u8, count: u8) -> Res<()> {
-		assert!(count <= 8);
-		let bits = bits << (8 - count);
-		self.bit_buffer |= bits >> self.bit_offset;
-		if self.bit_offset + count >= 8 {
-			self.flush_buffer()?;
-		}
-		if self.bit_offset + count > 8 {
-			self.bit_buffer = bits << (8 - self.bit_offset);
-		}
-		self.bit_offset = (self.bit_offset + count) % 8;
-		Ok(())
-	}
-}
-
-/// These methods write starting from the least significant bit.
-impl<W: Write> BitWriter<LE, W> {
-	/**
-		Writes a single bit, writing 1 for true, 0 for false.
-
-		# Examples
 
 		```
 		# use endio_bit::LEBitWriter;
-		let mut vec = vec![];
-		{
-			let mut writer = LEBitWriter::new(&mut vec);
-			writer.write_bit(true).unwrap();
-		}
+		let mut writer = LEBitWriter::new(vec![]);
+		writer.write_bit(true).unwrap();
+		let vec = writer.into_inner().unwrap();
 		assert_eq!(vec[0], 0x01);
 		```
 	**/
 	pub fn write_bit(&mut self, bit: bool) -> Res<()> {
 		if bit {
-			self.bit_buffer |= 0x01 << self.bit_offset;
+			self.bit_buffer |= E::shift_lsb(E::shift_msb(0xff, 7), self.bit_offset);
 		}
 		self.bit_offset = (self.bit_offset + 1) % 8;
 		if self.is_aligned() {
@@ -252,10 +194,16 @@ impl<W: Write> BitWriter<LE, W> {
 		# Examples
 
 		```
-		use endio_bit::LEBitWriter;
+		# use endio_bit::BEBitWriter;
+		let mut writer = BEBitWriter::new(vec![]);
+		writer.write_bits(31, 5);
+		let vec = writer.into_inner().unwrap();
+		assert_eq!(vec[0], 0xf8);
+		```
 
-		let mut vec = vec![];
-		let mut writer = LEBitWriter::new(vec);
+		```
+		# use endio_bit::LEBitWriter;
+		let mut writer = LEBitWriter::new(vec![]);
 		writer.write_bits(31, 5);
 		let vec = writer.into_inner().unwrap();
 		assert_eq!(vec[0], 0x1f);
@@ -263,14 +211,18 @@ impl<W: Write> BitWriter<LE, W> {
 	*/
 	pub fn write_bits(&mut self, bits: u8, count: u8) -> Res<()> {
 		assert!(count <= 8);
-		self.bit_buffer |= bits << self.bit_offset;
-		if self.bit_offset + count >= 8 {
+		let start = self.bit_offset;
+		let end = start + count;
+		let bits = bits << (8 - count);
+		let bits = E::align_right(bits, count);
+		self.bit_buffer |= E::shift_lsb(bits, start);
+		if end >= 8 {
 			self.flush_buffer()?;
 		}
-		if self.bit_offset + count > 8 {
-			self.bit_buffer = bits >> (8 - self.bit_offset);
+		if end > 8 {
+			self.bit_buffer = E::shift_msb(bits, 8 - start);
 		}
-		self.bit_offset = (self.bit_offset + count) % 8;
+		self.bit_offset = end % 8;
 		Ok(())
 	}
 }
@@ -284,50 +236,18 @@ impl<W: Write> BitWriter<LE, W> {
 
 	[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 */
-impl<W: Write> Write for BitWriter<BE, W> {
+impl<E: BitEndianness, W: Write> Write for BitWriter<E, W> {
 	fn write(&mut self, buf: &[u8]) -> Res<usize> {
 		if self.is_aligned() {
 			return unsafe { self.get_mut_unchecked() }.write(buf);
 		}
 		let mut shifted = vec![0; buf.len()];
-		let mut last_byte = self.bit_buffer >> (8 - self.bit_offset);
+		let mut last_byte = E::shift_lsb(self.bit_buffer, 8 - self.bit_offset);
 		for (byte, new) in buf.iter().zip(shifted.iter_mut()) {
-			*new = last_byte << (8 - self.bit_offset)  | *byte >> self.bit_offset;
+			*new = E::shift_msb(last_byte, 8 - self.bit_offset)  | E::shift_lsb(*byte, self.bit_offset);
 			last_byte = *byte;
 		}
-		self.bit_buffer = last_byte << (8 - self.bit_offset);
-		unsafe { self.get_mut_unchecked() }.write(&shifted)
-	}
-
-	fn flush(&mut self) -> Res<()> {
-		if !self.is_aligned() {
-			self.flush_buffer()?;
-		}
-		unsafe { self.get_mut_unchecked() }.flush()
-	}
-}
-
-/**
-	Write bytes to a `BitWriter` just like to [`Write`], but with bit shifting support for unaligned writes.
-
-	Note that in order to fulfill the contract of [`Write`] and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
-
-	Directly maps to [`Write`] for aligned writes.
-
-	[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
-*/
-impl<W: Write> Write for BitWriter<LE, W> {
-	fn write(&mut self, buf: &[u8]) -> Res<usize> {
-		if self.is_aligned() {
-			return unsafe { self.get_mut_unchecked() }.write(buf);
-		}
-		let mut shifted = vec![0; buf.len()];
-		let mut last_byte = self.bit_buffer << (8 - self.bit_offset);
-		for (byte, new) in buf.iter().zip(shifted.iter_mut()) {
-			*new = last_byte >> (8 - self.bit_offset)  | *byte << self.bit_offset;
-			last_byte = *byte;
-		}
-		self.bit_buffer = last_byte >> (8 - self.bit_offset);
+		self.bit_buffer = E::shift_msb(last_byte, 8 - self.bit_offset);
 		unsafe { self.get_mut_unchecked() }.write(&shifted)
 	}
 
@@ -444,7 +364,7 @@ mod tests_be {
 	fn write_bits() {
 		let mut vec = vec![];{
 		let mut writer = BEBitWriter::new(&mut vec);
-		writer.write_bits(0x0a, 4).unwrap();
+		writer.write_bits(0xfa, 4).unwrap();
 		writer.write_bits(0xbc, 8).unwrap();}
 		assert_eq!(vec, b"\xab\xc0");
 	}
@@ -510,7 +430,7 @@ mod tests_le {
 	fn write_bits() {
 		let mut vec = vec![];{
 		let mut writer = LEBitWriter::new(&mut vec);
-		writer.write_bits(0x0a, 4).unwrap();
+		writer.write_bits(0xfa, 4).unwrap();
 		writer.write_bits(0xbc, 8).unwrap();}
 		assert_eq!(vec, b"\xca\x0b");
 	}
