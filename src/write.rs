@@ -26,11 +26,14 @@ impl<W> IntoInnerError<W> {
 }
 
 /**
-	Adds bit-level writing support to something implementing `std::io::Write`.
+	Adds bit-level writing support to something implementing [`std::io::Write`].
 
 	This is accomplished through an internal buffer for storing partially read bytes. Note that this buffer is for correctness, not performance - if you want to improve performance by buffering, use [`std::io::BufWriter`] as the `BitWriter`'s write target.
 
 	When the `BitWriter` is dropped, the partially written byte will be written out. However, any errors that happen in the process of flushing the buffer when the writer is dropped will be ignored. Code that wishes to handle such errors must manually call `flush` before the writer is dropped.
+
+	[`std::io::Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
+	[`std::io::BufWriter`]: https://doc.rust-lang.org/std/io/struct.BufWriter.html
 */
 #[derive(Debug)]
 pub struct BitWriter<E: BitEndianness, W: Write> {
@@ -45,7 +48,7 @@ pub struct BitWriter<E: BitEndianness, W: Write> {
 
 impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 	/**
-		Creates a new `BitWriter` from something implementing `Write`. This will be used as the underlying object to write to.
+		Creates a new `BitWriter` from something implementing [`Write`]. This will be used as the underlying object to write to.
 
 		# Examples
 
@@ -57,6 +60,8 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 		let mut vec = vec![];
 		let mut writer = BEBitWriter::new(vec);
 		```
+
+		[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 	*/
 	pub fn new(inner: W) -> Self {
 		Self {
@@ -140,8 +145,23 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 	}
 }
 
+/// These methods write starting from the most significant bit.
 impl<W: Write> BitWriter<BE, W> {
-	/// Writes a single bit, writing 1 for true, 0 for false.
+	/**
+		Writes a single bit, writing 1 for true, 0 for false.
+
+		# Examples
+
+		```
+		# use endio_bit::BEBitWriter;
+		let mut vec = vec![];
+		{
+			let mut writer = BEBitWriter::new(&mut vec);
+			writer.write_bit(true).unwrap();
+		}
+		assert_eq!(vec[0], 0x80);
+		```
+	**/
 	pub fn write_bit(&mut self, bit: bool) -> Res<()> {
 		if bit {
 			self.bit_buffer |= 0x80 >> self.bit_offset;
@@ -158,7 +178,7 @@ impl<W: Write> BitWriter<BE, W> {
 
 		The lowest `count` bits will be used, others will be ignored.
 
-		Writing more than 8 bits is intentionally not supported to keep the interface simple and to avoid having to deal with endianness in any way. Writing more can be accomplished by writing bytes and then writing any leftover bits.
+		Writing more than 8 bits is intentionally not supported to keep the interface simple. Writing more can be accomplished by writing bytes and then writing any leftover bits.
 
 		# Panics
 
@@ -167,13 +187,12 @@ impl<W: Write> BitWriter<BE, W> {
 		# Examples
 
 		```
-		use endio_bit::BEBitWriter;
-
+		# use endio_bit::BEBitWriter;
 		let mut vec = vec![];
 		let mut writer = BEBitWriter::new(vec);
 		writer.write_bits(31, 5);
 		let vec = writer.into_inner().unwrap();
-		//assert_eq!(vec[0], 0xf8);
+		assert_eq!(vec[0], 0xf8);
 		```
 	*/
 	pub fn write_bits(&mut self, bits: u8, count: u8) -> Res<()> {
@@ -191,8 +210,23 @@ impl<W: Write> BitWriter<BE, W> {
 	}
 }
 
+/// These methods write starting from the least significant bit.
 impl<W: Write> BitWriter<LE, W> {
-	/// Writes a single bit, writing 1 for true, 0 for false.
+	/**
+		Writes a single bit, writing 1 for true, 0 for false.
+
+		# Examples
+
+		```
+		# use endio_bit::LEBitWriter;
+		let mut vec = vec![];
+		{
+			let mut writer = LEBitWriter::new(&mut vec);
+			writer.write_bit(true).unwrap();
+		}
+		assert_eq!(vec[0], 0x01);
+		```
+	**/
 	pub fn write_bit(&mut self, bit: bool) -> Res<()> {
 		if bit {
 			self.bit_buffer |= 0x01 << self.bit_offset;
@@ -209,7 +243,7 @@ impl<W: Write> BitWriter<LE, W> {
 
 		The lowest `count` bits will be used, others will be ignored.
 
-		Writing more than 8 bits is intentionally not supported to keep the interface simple and to avoid having to deal with endianness in any way. Writing more can be accomplished by writing bytes and then writing any leftover bits.
+		Writing more than 8 bits is intentionally not supported to keep the interface simple. Writing more can be accomplished by writing bytes and then writing any leftover bits.
 
 		# Panics
 
@@ -218,13 +252,13 @@ impl<W: Write> BitWriter<LE, W> {
 		# Examples
 
 		```
-		use endio_bit::BEBitWriter;
+		use endio_bit::LEBitWriter;
 
 		let mut vec = vec![];
-		let mut writer = BEBitWriter::new(vec);
+		let mut writer = LEBitWriter::new(vec);
 		writer.write_bits(31, 5);
 		let vec = writer.into_inner().unwrap();
-		//assert_eq!(vec[0], 0xf8);
+		assert_eq!(vec[0], 0x1f);
 		```
 	*/
 	pub fn write_bits(&mut self, bits: u8, count: u8) -> Res<()> {
@@ -242,11 +276,13 @@ impl<W: Write> BitWriter<LE, W> {
 }
 
 /**
-	Write bytes to a `BitWriter` just like to `Write`, but with bit shifting support for unaligned writes.
+	Write bytes to a `BitWriter` just like to [`Write`], but with bit shifting support for unaligned writes.
 
-	Note that in order to fulfill the contract of `Write` and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
+	Note that in order to fulfill the contract of [`Write`] and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
 
-	Directly maps to `Write` for aligned writes.
+	Directly maps to [`Write`] for aligned writes.
+
+	[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 */
 impl<W: Write> Write for BitWriter<BE, W> {
 	fn write(&mut self, buf: &[u8]) -> Res<usize> {
@@ -272,11 +308,13 @@ impl<W: Write> Write for BitWriter<BE, W> {
 }
 
 /**
-	Write bytes to a `BitWriter` just like to `Write`, but with bit shifting support for unaligned writes.
+	Write bytes to a `BitWriter` just like to [`Write`], but with bit shifting support for unaligned writes.
 
-	Note that in order to fulfill the contract of `Write` and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
+	Note that in order to fulfill the contract of [`Write`] and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
 
-	Directly maps to `Write` for aligned writes.
+	Directly maps to [`Write`] for aligned writes.
+
+	[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 */
 impl<W: Write> Write for BitWriter<LE, W> {
 	fn write(&mut self, buf: &[u8]) -> Res<usize> {
@@ -304,7 +342,7 @@ impl<W: Write> Write for BitWriter<LE, W> {
 /// Flushes the buffer for unaligned writes before the `BitWriter` is dropped.
 impl<E: BitEndianness, W: Write> Drop for BitWriter<E, W> {
 	fn drop(&mut self) {
-		self.align().unwrap();
+		let _ = self.align();
 	}
 }
 
