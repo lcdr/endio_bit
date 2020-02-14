@@ -47,12 +47,15 @@ pub struct BitWriter<E: BitEndianness, W: Write> {
 	bit_offset: u8,
 	/// Storage for remaining bits after an unaligned write operation.
 	bit_buffer: u8,
+	buffer: Vec<u8>,
 	phantom: std::marker::PhantomData<E>,
 }
 
 impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 	/**
 		Creates a new `BitWriter` from something implementing [`Write`]. This will be used as the underlying object to write to.
+
+		The default capacity for the buffer used in the `Write` implementation is currently 16 bytes, but this may change in the future.
 
 		# Examples
 
@@ -68,10 +71,16 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 		[`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 	*/
 	pub fn new(inner: W) -> Self {
+		Self::with_capacity(16, inner)
+	}
+
+	/// Creates a new `BitWriter` with an explicitly specified capacity for the buffer used in the `Write` implementation.
+	pub fn with_capacity(capacity: usize, inner: W) -> Self {
 		Self {
 			inner: Some(inner),
 			bit_offset: 0,
 			bit_buffer: 0,
+			buffer: vec![0; capacity],
 			phantom: std::marker::PhantomData,
 		}
 	}
@@ -230,7 +239,7 @@ impl<E: BitEndianness, W: Write> BitWriter<E, W> {
 /**
 	Write bytes to a `BitWriter` just like to [`Write`], but with bit shifting support for unaligned writes.
 
-	Note that in order to fulfill the contract of [`Write`] and write to the underlying object at most once, this function needs to heap-allocate a new buffer for bitshifting, which may be expensive for large buffers.
+	Note that in order to fulfill the contract of [`Write`] and write to the underlying object at most once, this function uses a buffer for bitshifting. You can adjust the size of the buffer by creating the `BitWriter` using the `with_capacity` constructor.
 
 	Directly maps to [`Write`] for aligned writes.
 
@@ -241,14 +250,14 @@ impl<E: BitEndianness, W: Write> Write for BitWriter<E, W> {
 		if self.is_aligned() {
 			return unsafe { self.get_mut_unchecked() }.write(buf);
 		}
-		let mut shifted = vec![0; buf.len()];
 		let mut last_byte = E::shift_lsb(self.bit_buffer, 8 - self.bit_offset);
-		for (byte, new) in buf.iter().zip(shifted.iter_mut()) {
+		for (byte, new) in buf.iter().zip(self.buffer.iter_mut()) {
 			*new = E::shift_msb(last_byte, 8 - self.bit_offset)  | E::shift_lsb(*byte, self.bit_offset);
 			last_byte = *byte;
 		}
 		self.bit_buffer = E::shift_msb(last_byte, 8 - self.bit_offset);
-		unsafe { self.get_mut_unchecked() }.write(&shifted)
+		let len = std::cmp::min(buf.len(), self.buffer.len());
+		self.inner.as_mut().unwrap().write(&self.buffer[0..len])
 	}
 
 	fn flush(&mut self) -> Res<()> {
@@ -328,7 +337,7 @@ mod tests_be {
 	#[test]
 	fn write_shifted() {
 		let mut vec = vec![];{
-		let mut writer = BEBitWriter::new(&mut vec);
+		let mut writer = BEBitWriter::with_capacity(8, &mut vec);
 		writer.write_bit(true).unwrap();
 		writer.write_bit(false).unwrap();
 		writer.write_bit(true).unwrap();
@@ -394,7 +403,7 @@ mod tests_le {
 	#[test]
 	fn write_shifted() {
 		let mut vec = vec![];{
-		let mut writer = LEBitWriter::new(&mut vec);
+		let mut writer = LEBitWriter::with_capacity(8, &mut vec);
 		writer.write_bit(true).unwrap();
 		writer.write_bit(false).unwrap();
 		writer.write_bit(true).unwrap();
